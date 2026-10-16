@@ -1,6 +1,5 @@
 package com.airware.loader
 
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,7 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.*
@@ -19,11 +17,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.airware.loader.ui.*
 import com.airware.loader.ui.theme.AccentPink
 import com.airware.loader.ui.theme.AccentPinkDim
 import com.airware.loader.ui.theme.AirwareLoaderTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private const val TARGET_PACKAGE = "com.axlebolt.standoff2"
 
@@ -36,7 +37,6 @@ class MainActivity : ComponentActivity() {
     }
 
     // JNI: запускает ptrace-инжект нативной библиотеки чита в процесс игры.
-    // Возвращает true при успехе. Реализация — app/src/main/jni/injector.cpp
     external fun nativeInject(targetPackage: String, libPath: String): Boolean
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,33 +44,43 @@ class MainActivity : ComponentActivity() {
         setContent {
             AirwareLoaderTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    LoaderScreen(
-                        isTargetInstalled = isPackageInstalled(TARGET_PACKAGE),
-                        onInject = { onInjectClick() }
-                    )
+                    LoaderScreen(onInject = { pkg, libPath -> nativeInject(pkg, libPath) })
                 }
             }
         }
     }
-
-    private fun isPackageInstalled(pkg: String): Boolean = try {
-        packageManager.getPackageInfo(pkg, 0)
-        true
-    } catch (e: PackageManager.NameNotFoundException) {
-        false
-    }
-
-    private fun onInjectClick(): Boolean {
-        val libPath = "${filesDir.absolutePath}/airware.sh" // переименованная .so, см. notes в конце
-        return nativeInject(TARGET_PACKAGE, libPath)
-    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoaderScreen(isTargetInstalled: Boolean, onInject: () -> Boolean) {
+fun LoaderScreen(onInject: (String, String) -> Boolean) {
     var status by remember { mutableStateOf(LoaderStatus.IDLE) }
+    var hasRoot by remember { mutableStateOf<Boolean?>(null) }
+    var gameRunning by remember { mutableStateOf<Boolean?>(null) }
+    var selectedBuild by remember { mutableStateOf<String?>(null) }
+    val log = rememberLogState()
     val scope = rememberCoroutineScope()
+
+    // Проверка root + состояния игры при старте, и периодический опрос состояния игры.
+    LaunchedEffect(Unit) {
+        log.info("checking root access...")
+        val root = withContext(Dispatchers.IO) { RootShell.hasRoot() }
+        hasRoot = root
+        if (root) log.success("root access granted") else log.error("root access denied — su not available")
+
+        while (true) {
+            val pids = withContext(Dispatchers.IO) { RootShell.pidOf(TARGET_PACKAGE) }
+            val running = pids.isNotEmpty()
+            if (gameRunning != running) {
+                if (running) log.success("Standoff 2 detected, pid=${pids.first()}")
+                else log.warn("Standoff 2 is not running")
+            }
+            gameRunning = running
+            delay(2000)
+        }
+    }
+
+    val canInject = hasRoot == true && gameRunning == true && selectedBuild != null &&
+            status != LoaderStatus.CHECKING && status != LoaderStatus.INJECTING
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -80,112 +90,54 @@ fun LoaderScreen(isTargetInstalled: Boolean, onInject: () -> Boolean) {
                 .padding(top = 48.dp, bottom = 16.dp),
         ) {
             HeaderRow()
+            Spacer(modifier = Modifier.height(20.dp))
 
-            Spacer(modifier = Modifier.height(24.dp))
+            RootStatusChip(hasRoot)
+            Spacer(modifier = Modifier.height(12.dp))
 
-            TargetCard(
-                isInstalled = isTargetInstalled,
-                status = status,
-                onLaunch = {
-                    if (status == LoaderStatus.IDLE || status == LoaderStatus.ERROR) {
-                        scope.launch {
-                            status = LoaderStatus.CHECKING
-                            delay(500)
-                            status = LoaderStatus.INJECTING
-                            delay(400)
-                            val ok = onInject()
-                            status = if (ok) LoaderStatus.SUCCESS else LoaderStatus.ERROR
-                        }
-                    }
-                }
+            TargetCard(gameRunning = gameRunning)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            BuildPickerCard(
+                selectedBuild = selectedBuild?.substringAfterLast('/'),
+                onBuildSelected = { selectedBuild = it },
+                onLog = { log.info(it) }
             )
-
-            Spacer(modifier = Modifier.weight(1f))
-
-            BannerStrip()
-        }
-    }
-}
-
-@Composable
-fun HeaderRow() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            text = "airware",
-            color = Color(0xFFF0F0F5),
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(modifier = Modifier.width(10.dp))
-        DeveloperBadge()
-    }
-    Text(
-        text = "Loader",
-        color = Color(0xFF9E9EA8),
-        fontSize = 13.sp,
-        modifier = Modifier.padding(top = 2.dp)
-    )
-}
-
-@Composable
-fun DeveloperBadge() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .background(AccentPinkDim, RoundedCornerShape(20.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Icon(
-            imageVector = Icons.Filled.Verified,
-            contentDescription = null,
-            tint = AccentPink,
-            modifier = Modifier.size(14.dp)
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = "Developer",
-            color = AccentPink,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium
-        )
-    }
-}
-
-@Composable
-fun TargetCard(isInstalled: Boolean, status: LoaderStatus, onLaunch: () -> Unit) {
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF121216)),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(18.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(Color(0xFF1A1A20), RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("S2", color = AccentPink, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("Standoff 2", color = Color(0xFFF0F0F5), fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                    Text(
-                        text = if (isInstalled) "Package found" else "Not installed",
-                        color = if (isInstalled) Color(0xFF66BB6A) else Color(0xFFEF5350),
-                        fontSize = 12.sp
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            StatusRow(status)
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Button(
-                onClick = onLaunch,
-                enabled = isInstalled && status != LoaderStatus.CHECKING && status != LoaderStatus.INJECTING,
+                onClick = {
+                    val build = selectedBuild ?: return@Button
+                    scope.launch {
+                        status = LoaderStatus.CHECKING
+                        log.info("re-checking root and process before injection...")
+                        delay(300)
+
+                        if (hasRoot != true) {
+                            log.error("abort: no root access")
+                            status = LoaderStatus.ERROR
+                            return@launch
+                        }
+                        val pids = withContext(Dispatchers.IO) { RootShell.pidOf(TARGET_PACKAGE) }
+                        if (pids.isEmpty()) {
+                            log.error("abort: Standoff 2 process not found")
+                            status = LoaderStatus.ERROR
+                            return@launch
+                        }
+
+                        status = LoaderStatus.INJECTING
+                        log.info("injecting '$build' into pid=${pids.first()}...")
+                        val ok = withContext(Dispatchers.IO) { onInject(TARGET_PACKAGE, build) }
+                        status = if (ok) {
+                            log.success("injection complete")
+                            LoaderStatus.SUCCESS
+                        } else {
+                            log.error("injection failed — see logcat for native errors")
+                            LoaderStatus.ERROR
+                        }
+                    }
+                },
+                enabled = canInject,
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AccentPink,
@@ -207,43 +159,101 @@ fun TargetCard(isInstalled: Boolean, status: LoaderStatus, onLaunch: () -> Unit)
                     fontWeight = FontWeight.SemiBold
                 )
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            LogWindow(state = log, modifier = Modifier.weight(1f).fillMaxWidth())
+
+            Spacer(modifier = Modifier.height(12.dp))
+            BannerStrip()
         }
     }
 }
 
 @Composable
-fun StatusRow(status: LoaderStatus) {
-    val (label, color) = when (status) {
-        LoaderStatus.IDLE -> "Ready" to Color(0xFF9E9EA8)
-        LoaderStatus.CHECKING -> "Checking process..." to Color(0xFFFFB74D)
-        LoaderStatus.INJECTING -> "Mapping library..." to Color(0xFFFFB74D)
-        LoaderStatus.SUCCESS -> "Injection successful" to Color(0xFF66BB6A)
-        LoaderStatus.ERROR -> "Injection failed — check root access" to Color(0xFFEF5350)
-    }
+fun HeaderRow() {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = color, modifier = Modifier.size(14.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(text = label, color = color, fontSize = 12.sp)
+        Text(text = "airware", color = Color(0xFFF0F0F5), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(modifier = Modifier.width(10.dp))
+        DeveloperBadge()
+    }
+    Text(text = "Loader", color = Color(0xFF9E9EA8), fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+}
+
+@Composable
+fun DeveloperBadge() {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(AccentPinkDim, RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Icon(Icons.Filled.Verified, contentDescription = null, tint = AccentPink, modifier = Modifier.size(14.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(text = "Developer", color = AccentPink, fontSize = 12.sp, fontWeight = FontWeight.Medium)
     }
 }
 
-// Плашки каналов — просто текст, без кликабельных ссылок и без Linkify.
+@Composable
+fun RootStatusChip(hasRoot: Boolean?) {
+    val (label, color) = when (hasRoot) {
+        null -> "Checking root..." to Color(0xFF9E9EA8)
+        true -> "Root access granted" to Color(0xFF66BB6A)
+        false -> "Root access denied" to Color(0xFFEF5350)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .fillMaxWidth()
+    ) {
+        Box(modifier = Modifier.size(8.dp).background(color, RoundedCornerShape(4.dp)))
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(text = label, color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun TargetCard(gameRunning: Boolean?) {
+    val (label, color) = when (gameRunning) {
+        null -> "Checking..." to Color(0xFF9E9EA8)
+        true -> "Running" to Color(0xFF66BB6A)
+        false -> "Not running" to Color(0xFFEF5350)
+    }
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF121216)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier.size(44.dp).background(Color(0xFF1A1A20), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("S2", color = AccentPink, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column {
+                Text("Standoff 2", color = Color(0xFFF0F0F5), fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text(text = label, color = color, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
 @Composable
 fun BannerStrip() {
     val channels = listOf("t.me/timesplinter", "t.me/weeqz", "t.me/theftfelt")
     Column(modifier = Modifier.fillMaxWidth()) {
         Divider(color = Color(0xFF1A1A20), thickness = 1.dp)
         Spacer(modifier = Modifier.height(10.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             channels.forEach { handle ->
-                Text(
-                    text = handle,
-                    color = Color(0xFF55555E),
-                    fontSize = 11.sp
-                )
+                Text(text = handle, color = Color(0xFF55555E), fontSize = 11.sp)
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
