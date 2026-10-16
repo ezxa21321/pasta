@@ -164,14 +164,9 @@ private fun BuildsList(
 
 @Composable
 private fun Modifier.clickableRow(onClick: () -> Unit): Modifier {
-    return this.then(
-        Modifier.background(androidx.compose.ui.graphics.Color.Transparent)
-            .then(
-                androidx.compose.foundation.clickable(
-                    indication = null,
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                    onClick = onClick
-                )
-            )
+    return this.clickable(
+        indication = null,
+        interactionSource = remember { MutableInteractionSource() },
+        onClick = onClick
     )
 }
