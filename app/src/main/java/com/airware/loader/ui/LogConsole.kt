@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,11 +16,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-enum class LogLevel(val color: Color, val tag: String) {
-    INFO(Color(0xFF9E9EA8), "INFO"),
-    SUCCESS(Color(0xFF66BB6A), "OK"),
-    WARN(Color(0xFFFFB74D), "WARN"),
-    ERROR(Color(0xFFEF5350), "CRIT")
+enum class LogLevel(val tag: String) {
+    INFO("INFO"),
+    SUCCESS("OK"),
+    WARN("WARN"),
+    ERROR("CRIT")
+}
+
+// Фиксированные цвета уровней — одинаковы в обеих темах (зелёный/жёлтый/красный должны
+// оставаться узнаваемыми независимо от фона).
+fun levelColor(level: LogLevel): Color = when (level) {
+    LogLevel.INFO -> Color(0xFF9E9EA8)
+    LogLevel.SUCCESS -> Color(0xFF4CAF50)
+    LogLevel.WARN -> Color(0xFFF9A825)
+    LogLevel.ERROR -> Color(0xFFE53935)
 }
 
 data class LogEntry(val level: LogLevel, val message: String, val timeMs: Long = System.currentTimeMillis())
@@ -45,6 +55,7 @@ fun rememberLogState(): LogState = remember { LogState() }
 fun LogWindow(state: LogState, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val cs = MaterialTheme.colorScheme
 
     LaunchedEffect(state.entries.size) {
         if (state.entries.isNotEmpty()) {
@@ -54,12 +65,12 @@ fun LogWindow(state: LogState, modifier: Modifier = Modifier) {
 
     Column(
         modifier = modifier
-            .background(Color(0xFF0E0E12), RoundedCornerShape(16.dp))
-            .padding(12.dp)
+            .background(cs.surfaceVariant, RoundedCornerShape(20.dp))
+            .padding(14.dp)
     ) {
         Text(
             text = "LOG",
-            color = Color(0xFF55555E),
+            color = cs.onSurfaceVariant,
             fontSize = 11.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.padding(bottom = 6.dp)
@@ -67,14 +78,14 @@ fun LogWindow(state: LogState, modifier: Modifier = Modifier) {
         if (state.entries.isEmpty()) {
             Text(
                 text = "// waiting...",
-                color = Color(0xFF3A3A42),
+                color = cs.onSurfaceVariant,
                 fontSize = 12.sp,
                 fontFamily = FontFamily.Monospace
             )
         } else {
             LazyColumn(state = listState, modifier = Modifier.fillMaxWidth()) {
                 items(state.entries) { entry ->
-                    LogLine(entry)
+                    LogLine(entry, textColor = cs.onSurface)
                 }
             }
         }
@@ -82,18 +93,18 @@ fun LogWindow(state: LogState, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun LogLine(entry: LogEntry) {
+private fun LogLine(entry: LogEntry, textColor: Color) {
     Row(modifier = Modifier.padding(vertical = 2.dp)) {
         Text(
             text = "[${entry.level.tag}]",
-            color = entry.level.color,
+            color = levelColor(entry.level),
             fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = entry.message,
-            color = Color(0xFFCACAD0),
+            color = textColor,
             fontSize = 12.sp,
             fontFamily = FontFamily.Monospace,
         )

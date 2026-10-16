@@ -1,7 +1,5 @@
 package com.airware.loader.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,12 +9,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.airware.loader.RootShell
-import com.airware.loader.ui.theme.AccentPink
 
 const val BUILD_DIR = "/data/local/tmp"
 
@@ -29,6 +25,7 @@ fun BuildPickerCard(
     var builds by remember { mutableStateOf<List<String>>(emptyList()) }
     var expanded by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
+    val cs = MaterialTheme.colorScheme
 
     fun refresh() {
         loading = true
@@ -45,34 +42,35 @@ fun BuildPickerCard(
     LaunchedEffect(Unit) { refresh() }
 
     Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF121216)),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = cs.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(18.dp)) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Build", color = Color(0xFFF0F0F5), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                    Text("Build", color = cs.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Medium)
                     Text(
                         text = selectedBuild ?: "Not selected",
-                        color = if (selectedBuild != null) AccentPink else Color(0xFF9E9EA8),
-                        fontSize = 12.sp
+                        color = if (selectedBuild != null) cs.primary else cs.onSurfaceVariant,
+                        fontSize = 13.sp
                     )
                 }
                 IconButton(onClick = { refresh() }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = Color(0xFF9E9EA8))
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh", tint = cs.onSurfaceVariant)
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = { expanded = !expanded },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = cs.onSurface),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (loading) "Scanning $BUILD_DIR..." else "Select build")
@@ -81,11 +79,10 @@ fun BuildPickerCard(
                 DropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
-                    modifier = Modifier.background(Color(0xFF17171C))
                 ) {
                     if (builds.isEmpty()) {
                         DropdownMenuItem(
-                            text = { Text("No files found", color = Color(0xFF9E9EA8)) },
+                            text = { Text("No files found", color = cs.onSurfaceVariant) },
                             onClick = { expanded = false }
                         )
                     } else {
@@ -96,11 +93,11 @@ fun BuildPickerCard(
                                         Icon(
                                             Icons.Filled.Description,
                                             contentDescription = null,
-                                            tint = AccentPink,
+                                            tint = cs.primary,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text(fileName, color = Color(0xFFF0F0F5))
+                                        Text(fileName, color = cs.onSurface)
                                     }
                                 },
                                 onClick = {
