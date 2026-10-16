@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animateFloatAsState
 
 // Сворачиваемая панель "Логи" с шевроном — повёрнутый на 180° при раскрытии (анимированно).
 @Composable
