@@ -3,6 +3,8 @@ package com.airware.loader
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -30,7 +32,7 @@ private const val TARGET_PACKAGE = "com.axlebolt.standoff2"
 enum class LoaderStatus { IDLE, CHECKING, INJECTING, SUCCESS, ERROR }
 enum class Tab(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     HOME("Главная", Icons.Filled.Home),
-    LOG("Лог", Icons.Filled.Terminal),
+    FEED("Лента", Icons.Filled.List),
     FILES("Файлы", Icons.Filled.Folder)
 }
 
@@ -125,34 +127,39 @@ fun LoaderScreen(isDark: Boolean, onToggleTheme: () -> Unit, onInject: (String, 
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-            TopBar(isDark = isDark, onToggleTheme = onToggleTheme)
+            TopBar(title = currentTab.label, isDark = isDark, onToggleTheme = onToggleTheme)
 
-            Column(
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
                     .padding(top = 8.dp)
             ) {
-                when (currentTab) {
-                    Tab.HOME -> HomeTab(
-                        hasRoot = hasRoot,
-                        gameRunning = gameRunning,
-                        selectedBuild = selectedBuild?.substringAfterLast('/'),
-                        status = status,
-                        canInject = canInject,
-                        onStart = { doStart() }
-                    )
-                    Tab.LOG -> LogWindow(state = log, modifier = Modifier.fillMaxSize())
-                    Tab.FILES -> BuildPickerCard(
-                        selectedBuild = selectedBuild?.substringAfterLast('/'),
-                        onBuildSelected = { selectedBuild = it },
-                        onLog = { log.info(it) }
-                    )
+                Crossfade(targetState = currentTab, animationSpec = tween(220), label = "tab") { tab ->
+                    when (tab) {
+                        Tab.HOME -> HomeTab(
+                            gameRunning = gameRunning,
+                            selectedBuild = selectedBuild?.substringAfterLast('/'),
+                            status = status,
+                            canInject = canInject,
+                            log = log,
+                            onStart = { doStart() },
+                            onClearLog = { log.entries.clear() }
+                        )
+                        Tab.FEED -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("Лента пуста", color = cs.onSurfaceVariant, fontSize = 14.sp)
+                        }
+                        Tab.FILES -> FilesTab(
+                            selectedBuild = selectedBuild,
+                            onBuildSelected = { selectedBuild = it },
+                            onLog = { log.info(it) }
+                        )
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             BannerStrip()
             Spacer(modifier = Modifier.height(10.dp))
             BottomPillNav(current = currentTab, onSelect = { currentTab = it })
@@ -162,7 +169,7 @@ fun LoaderScreen(isDark: Boolean, onToggleTheme: () -> Unit, onInject: (String, 
 }
 
 @Composable
-fun TopBar(isDark: Boolean, onToggleTheme: () -> Unit) {
+fun TopBar(title: String, isDark: Boolean, onToggleTheme: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
         modifier = Modifier
@@ -171,8 +178,8 @@ fun TopBar(isDark: Boolean, onToggleTheme: () -> Unit) {
             .padding(top = 20.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text("Главная", color = cs.onBackground, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
+        Crossfade(targetState = title, modifier = Modifier.weight(1f), label = "title") { t ->
+            Text(t, color = cs.onBackground, fontSize = 28.sp, fontWeight = FontWeight.SemiBold)
         }
         DeveloperBadge()
         Spacer(modifier = Modifier.width(10.dp))
@@ -208,30 +215,16 @@ fun DeveloperBadge() {
 
 @Composable
 fun HomeTab(
-    hasRoot: Boolean?,
     gameRunning: Boolean?,
     selectedBuild: String?,
     status: LoaderStatus,
     canInject: Boolean,
+    log: LogState,
     onStart: () -> Unit,
+    onClearLog: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Column {
-        InfoCard(
-            icon = Icons.Filled.Security,
-            title = "Root доступ",
-            subtitle = when (hasRoot) {
-                null -> "Проверка..."
-                true -> "Получен"
-                false -> "Отказано"
-            },
-            subtitleColor = when (hasRoot) {
-                true -> Color(0xFF4CAF50)
-                false -> Color(0xFFE53935)
-                null -> cs.onSurfaceVariant
-            }
-        )
-        Spacer(modifier = Modifier.height(12.dp))
+    Column(modifier = Modifier.fillMaxSize()) {
         InfoCard(
             icon = Icons.Filled.SportsEsports,
             title = "SO2",
@@ -254,33 +247,37 @@ fun HomeTab(
             subtitleColor = if (selectedBuild != null) cs.primary else cs.onSurfaceVariant
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+        LogAccordion(state = log, modifier = Modifier.fillMaxWidth())
 
-        Button(
-            onClick = onStart,
-            enabled = canInject,
-            shape = RoundedCornerShape(28.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = cs.primary,
-                contentColor = cs.onPrimary
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-        ) {
-            Icon(Icons.Filled.PlayArrow, contentDescription = null, modifier = Modifier.size(20.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = when (status) {
-                    LoaderStatus.CHECKING -> "Checking..."
-                    LoaderStatus.INJECTING -> "Starting..."
-                    LoaderStatus.SUCCESS -> "Started"
-                    LoaderStatus.ERROR -> "Start"
-                    LoaderStatus.IDLE -> "Start"
-                },
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            )
+        Spacer(modifier = Modifier.weight(1f))
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(
+                onClick = onClearLog,
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = cs.onSurfaceVariant),
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) {
+                Text("Очистить лог", fontWeight = FontWeight.Medium)
+            }
+            Button(
+                onClick = onStart,
+                enabled = canInject,
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = cs.primary, contentColor = cs.onPrimary),
+                modifier = Modifier.weight(1f).height(52.dp)
+            ) {
+                Text(
+                    text = when (status) {
+                        LoaderStatus.CHECKING -> "Checking..."
+                        LoaderStatus.INJECTING -> "Starting..."
+                        LoaderStatus.SUCCESS -> "Started"
+                        else -> "Старт"
+                    },
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
     }
 }
@@ -340,11 +337,16 @@ fun BottomPillNav(current: Tab, onSelect: (Tab) -> Unit) {
     ) {
         Tab.values().forEach { tab ->
             val selected = tab == current
+            val bg by androidx.compose.animation.animateColorAsState(
+                targetValue = if (selected) cs.primary else Color.Transparent,
+                animationSpec = tween(200),
+                label = "navbg"
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .padding(6.dp)
-                    .background(if (selected) cs.primary else Color.Transparent, RoundedCornerShape(50))
+                    .background(bg, RoundedCornerShape(50))
                     .clickableNoRipple { onSelect(tab) }
                     .padding(horizontal = if (selected) 18.dp else 12.dp, vertical = 10.dp)
             ) {
@@ -363,7 +365,6 @@ fun BottomPillNav(current: Tab, onSelect: (Tab) -> Unit) {
     }
 }
 
-// Небольшой helper, чтобы не тянуть индикацию ripple-эффекта поверх кастомного pill-фона.
 @Composable
 private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier {
     return this.then(
